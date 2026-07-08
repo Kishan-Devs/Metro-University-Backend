@@ -7,16 +7,37 @@ const Section = require('../models/Section.Model.js')
 const CourseProgress = require('../models/CourseProgress.Model.js')
 
 const SubSection = require('../models/SubSection.Model.js')
+
+// Small helper: FormData sends arrays (tag/instruction) as JSON-stringified
+// strings. This safely turns them back into real arrays whether the client
+// sent a JSON string, a plain string, or already-parsed array.
+const parseArrayField = (field) => {
+    if (Array.isArray(field)) return field
+    if (typeof field === 'string') {
+        try {
+            const parsed = JSON.parse(field)
+            return Array.isArray(parsed) ? parsed : [field]
+        } catch {
+            return [field]
+        }
+    }
+    return field
+}
+
 exports.createCourse = async (req, res) => {
     try {
         const { courseName, courseDescription, whatYouWillLearn, price, tag, categories, status, instruction } = req.body
-        const thumbnail = req.files.thumbnailImage
-        if (!courseName, !courseDescription, !whatYouWillLearn, !price, !tag, !categories, !status, !instruction) {
-            return res.status(401).json({
+        const thumbnail = req.files?.thumbnailImage
+
+        // fixed: was using the comma operator, which only evaluated the
+        // last condition (!instruction) and silently ignored the rest
+        if (!courseName || !courseDescription || !whatYouWillLearn || !price || !tag || !categories || !status || !instruction || !thumbnail) {
+            return res.status(400).json({
                 success: false,
                 message: 'All fields are required'
             })
         }
+
         // check intructor
         const userId = req.user.id
         const instructorDetails = await User.findById(userId)
@@ -38,17 +59,21 @@ exports.createCourse = async (req, res) => {
         }
 
         // upload thumbnail
-
         const thumbnailUpload = await ImageUpload(thumbnail, 'eduroute/thumbnail')
         //console.log(thumbnailUpload)
+
+        // parse tag/instruction back into real arrays before saving
+        const parsedTag = parseArrayField(tag)
+        const parsedInstruction = parseArrayField(instruction)
+
         // create entry for course
         const newCourse = await Course.create({
             courseName,
             courseDescription,
             intructor: instructorDetails._id,
             price,
-            tag,
-            instruction,
+            tag: parsedTag,
+            instruction: parsedInstruction,
             whatYouWillLearn,
             status,
             categories: categoriesDetails._id,
@@ -56,18 +81,13 @@ exports.createCourse = async (req, res) => {
         })
 
         // add the new course to instructor
-
-
         const addCourseInstructor = await User.findByIdAndUpdate({ _id: instructorDetails._id }, { $push: { courses: newCourse._id } }, { new: true })
-
 
         return res.status(200).json({
             success: true,
             message: 'Course created successfully',
             data: newCourse
         })
-
-
 
     } catch (err) {
         //console.log(err)
@@ -102,16 +122,11 @@ exports.updateCourse = async (req, res) => {
         })
             .populate('categories').exec()
 
-
         return res.status(200).json({
             success: true,
             message: 'Course published',
             data: response
         })
-
-
-
-
 
     } catch (err) {
         //console.log(err)
@@ -127,7 +142,6 @@ exports.updateCourseDetails = async (req, res) => {
         const { thumbnailImage, courseId, courseName, courseDescription, whatYouWillLearn, price, tag, category, instruction } = req.body
         const files = req.files
         // console.log('files', files)
-
 
         // console.log('body', req.body)
         if (!courseId) {
@@ -151,7 +165,6 @@ exports.updateCourseDetails = async (req, res) => {
             const thumbnail = files.thumbnailImage
             thumbnailUpload = await ImageUpload(thumbnail, 'eduroute/thumbnail')
             // console.log('thumbnailUpload', thumbnailUpload)
-
         }
 
         const categoriesDetails = await Categories.findById(category)
@@ -163,16 +176,20 @@ exports.updateCourseDetails = async (req, res) => {
             })
         }
 
+        // parse tag/instruction back into real arrays before saving
+        const parsedTag = parseArrayField(tag)
+        const parsedInstruction = parseArrayField(instruction)
+
         const courseDetails = await Course.findByIdAndUpdate(courseId, {
 
             courseName,
             courseDescription,
             price,
-            tag,
-            instruction,
+            tag: parsedTag,
+            instruction: parsedInstruction,
             whatYouWillLearn,
             categories: categoriesDetails._id,
-            status:'Draft',
+            status: 'Draft',
             thumbnail: thumbnailUpload?.secure_url ? thumbnailUpload.secure_url : thumbnailImage
         },
             { new: true }).populate({
@@ -181,7 +198,6 @@ exports.updateCourseDetails = async (req, res) => {
                     path: 'subSection'
                 }
             }).populate('categories').exec()
-
 
         return res.status(200).json({
             success: true,
@@ -294,7 +310,6 @@ exports.getInstructorCourse = async (req, res) => {
             })
         }
 
-
     } catch (err) {
         //console.log(err)
         return res.status(500).json({
@@ -314,14 +329,11 @@ exports.deleteCourse = async (req, res) => {
         if (section && section.length > 0) {
             for (const sectionId of section) {
 
-
-
                 const sectionResponse = await Section.findById(sectionId)
                 if (sectionResponse) {
 
                     //console.log('section response:', sectionResponse)
                     const subSectionIds = sectionResponse?.subSection
-
 
                     if (subSectionIds && subSectionIds.length > 0) {
 
@@ -332,7 +344,6 @@ exports.deleteCourse = async (req, res) => {
 
                     await Section.findByIdAndDelete(sectionId)
                 }
-
 
             }
 
@@ -351,14 +362,11 @@ exports.deleteCourse = async (req, res) => {
         }).exec()
         // //console.log(response)
 
-
         return res.status(200).json({
             success: true,
             message: 'Course deleted successfully',
             data: courseResponse
         })
-
-
 
     } catch (err) {
         //console.log(err)
@@ -420,10 +428,7 @@ exports.getEnrolledCourse = async (req, res) => {
             }
         }).populate('courseProgress').exec()
 
-
         // //console.log("userCourse",userCourse)
-
-
 
         let courseResponse
         let totalSubsection = []
@@ -439,8 +444,6 @@ exports.getEnrolledCourse = async (req, res) => {
                 }
             })
 
-
-
             const time = courseResponse?.courseContent?.reduce((totalTime, item) => {
                 const totalTimeStore = item?.subSection?.reduce((time, subSection) => {
                     const intoNumber = Number(subSection?.timeDuration)
@@ -449,26 +452,18 @@ exports.getEnrolledCourse = async (req, res) => {
                 return totalTime + totalTimeStore
             }, 0)
 
-
             const total = courseResponse?.courseContent?.reduce((total, item) => {
                 return total + (item?.subSection?.length || 0)
             }, 0)
-
-
-
-
 
             // //console.log('total',courseResponse?.courseContent)
 
             totalSubsection.push({ id: course._id, totalLength: total })
             totalTimeDuration.push({ id: course._id, totalTime: time })
 
-
         }
 
-
         // //console.log(totalSubsection)
-
 
         return res.status(200).json({
             success: true,
@@ -486,8 +481,6 @@ exports.getEnrolledCourse = async (req, res) => {
 }
 
 
-
-
 exports.completedLecture = async (req, res) => {
     const { courseId, subSectionId } = req.body
     const userId = req.user.id
@@ -496,7 +489,6 @@ exports.completedLecture = async (req, res) => {
         success: false,
         message: 'Feilds are empty'
     })
-
 
     try {
 
@@ -544,7 +536,6 @@ exports.getCourseProgress = async (req, res) => {
             message: 'Course progress fetched',
             data: courseProgress
         })
-        return
     } catch (err) {
         //console.log(err)
         return res.status(500).json({
